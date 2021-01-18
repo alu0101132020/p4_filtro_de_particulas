@@ -83,6 +83,7 @@ def genera_filtro(num_particulas, balizas, real, centro=[2,2], radio=2):
     # Creamos el robot y calculamos su peso asociado.
     new_robot = robot()
     new_robot.set(x_random, y_random, orientation_random)
+    new_robot.set_noise(.01,.01,.01)
     new_robot.measurement_prob(real.sense(balizas), balizas)
     # Añadimos el robot al conjunto.
     robots.append(new_robot)
@@ -131,8 +132,8 @@ HOLONOMICO = 0         # Robot holon�mico
 GIROPARADO = 0         # Si tiene que tener vel. lineal 0 para girar
 LONGITUD   = .1        # Longitud del robot
 
-N_PARTIC  = 50         # Tama�o del filtro de part�culas
-N_INICIAL = 2000       # Tama�o inicial del filtro
+N_PARTIC  = 200         # Tama�o del filtro de part�culas
+N_INICIAL = 1000       # Tama�o inicial del filtro
 
 # Definici�n de trayectorias:
 trayectorias = [
@@ -163,8 +164,7 @@ real.set(*P_INICIAL)
 
 #inicializaci�n del filtro de part�culas y de la trayectoria
 initial_pos = [P_INICIAL[0], P_INICIAL[1]]
-tamanio_filtro = 1000
-pf = genera_filtro(tamanio_filtro, objetivos, real, initial_pos, 0.5)
+pf = genera_filtro(N_INICIAL, objetivos, real, initial_pos, 0.5)
 
 trayectreal = [real.pose()]
 trayectoria = [hipotesis(pf)]
@@ -172,43 +172,35 @@ trayectoria = [hipotesis(pf)]
 tiempo  = 0.
 espacio = 0.
 for punto in objetivos:
-  while distancia(trayectoria[-1], punto) > EPSILON and len(trayectoria) <= 1000:
-
-    ideal = hipotesis(pf)
-    w = angulo_rel(real.pose(), ideal)
+  while distancia(trayectoria[-1],punto) > EPSILON and len(trayectoria) <= 1000:
+    # Escogemos el mejor robot del filtro
+    pose = hipotesis(pf)
+    # Movemos todos los robots en base al mejor robot.
+    w = angulo_rel(pose,punto)
     if w > W:  w =  W
     if w < -W: w = -W
-    v = distancia(real.pose(), ideal)
+    v = distancia(pose,punto)
     if (v > V): v = V
     if (v < 0): v = 0
     if HOLONOMICO:
       if GIROPARADO and abs(w) > .01:v = 0
-      real.move(w,v)
+      real.move(w,v) 
+      for i in range(len(pf)):
+        pf[i].move(w, v)
     else:
       real.move_triciclo(w,v,LONGITUD)
- 
-
-    # Seleccionar hip�tesis de localizaci�n y actualizar la trayectoria
-
-    for robot in pf:
-      w = angulo_rel(robot.pose(),punto)
-      if w > W:  w =  W
-      if w < -W: w = -W
-      v = distancia(robot.pose(),punto)
-      if (v > V): v = V
-      if (v < 0): v = 0
-      if HOLONOMICO:
-        if GIROPARADO and abs(w) > .01:v = 0
-        robot.move(w,v)
-      else:
-        robot.move_triciclo(w,v,LONGITUD)
-  
-    trayectreal.append(real.pose())
+      for i in range(len(pf)):
+        pf[i].move_triciclo(w, v, LONGITUD)
+    # Añadimos a la trayectoria la mejor calculada y la real.
     trayectoria.append(hipotesis(pf))
-
-    mostrar(objetivos, trayectoria, trayectreal, pf)
-    pf = resample(pf, 250)
-
+    trayectreal.append(real.pose())
+    mostrar(objetivos,trayectoria,trayectreal, pf)
+    # remuestreo
+    pf = resample(pf, N_PARTIC)
+      #recalculamos el peso de cada robot (la función los pone a 1)
+    for particle in pf:
+      particle.measurement_prob(real.sense(objetivos), objetivos)
+    
     espacio += v
     tiempo  += 1
 
